@@ -1179,11 +1179,12 @@ async function fetchCSV(url) {
 }
 
 function parsearCSV(texto) {
-  const lineas = texto.trim().split('\n');
+  // Limpiar 
+ de Windows y normalizar
+  const lineas = texto.trim().replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
   if (lineas.length < 2) return [];
   const headers = lineas[0].split(',').map(h => h.replace(/"/g,'').trim());
-  return lineas.slice(1).map(linea => {
-    // Maneja comas dentro de comillas
+  return lineas.slice(1).filter(l => l.trim()).map(linea => {
     const valores = [];
     let actual = '';
     let enComillas = false;
@@ -1194,9 +1195,9 @@ function parsearCSV(texto) {
     }
     valores.push(actual.trim());
     const obj = {};
-    headers.forEach((h, i) => { obj[h] = valores[i] || ''; });
+    headers.forEach((h, i) => { obj[h] = (valores[i] || '').replace(/\r/g,'').trim(); });
     return obj;
-  });
+  }).filter(obj => Object.values(obj).some(v => v));
 }
 
 // ── APLICAR MOVIMIENTOS ────────────────────────────
@@ -1221,11 +1222,15 @@ function aplicarMovimientos(rows) {
     const fpStr  = r['Fecha_programada'] || '';
     const frStr  = r['Fecha_real'] || '';
 
-    // Parse fecha dd/mm/yyyy
+    // Parse fecha dd/mm/yyyy — robusto
     function pf(s) {
-      const p = s.split('/');
+      if (!s) return null;
+      const clean = s.toString().trim();
+      const p = clean.split('/');
       if (p.length < 3) return null;
-      const d = new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+      const dia = parseInt(p[0]), mes = parseInt(p[1]), anio = parseInt(p[2]);
+      if (isNaN(dia) || isNaN(mes) || isNaN(anio)) return null;
+      const d = new Date(anio, mes-1, dia);
       d.setHours(0,0,0,0);
       return d;
     }
@@ -1692,10 +1697,12 @@ setInterval(cargarDatosSheet, 5 * 60 * 1000);
 
 function parseFechaSheet(s) {
   if (!s) return null;
-  // dd/mm/yyyy
-  const p = s.split('/');
+  const clean = s.toString().trim();
+  const p = clean.split('/');
   if (p.length === 3) {
-    const d = new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+    const dia = parseInt(p[0]), mes = parseInt(p[1]), anio = parseInt(p[2]);
+    if (isNaN(dia) || isNaN(mes) || isNaN(anio)) return null;
+    const d = new Date(anio, mes-1, dia);
     d.setHours(0,0,0,0);
     return d;
   }
