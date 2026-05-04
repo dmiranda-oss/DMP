@@ -923,6 +923,7 @@ const TD={
   fenek:{name:'FENEK — Mercado',col:'#1a8040',kpis:[['Saldo','$1.6M','#1a8040'],['Ingresos 30d','+$540K','#1a8040'],['Crecimiento','+18%','#1a8040']],base:[540,480,580,520],baseOut:[-210,-190,-230,-200],proj:[1.6,1.93,2.25,2.7]}
 };
 const HZ={
+  'hoy':{labels:['L','M','X','J','V','S','D'],f:0.25,cl:'Hoy — semana actual'},
   '7d':{labels:['L','M','X','J','V','S','D'],f:0.25,cl:'Esta semana'},
   '30d':{labels:['S1','S2','S3','S4'],f:1,cl:'Abril · Mayo'},
   '90d':{labels:['Abr','May','Jun'],f:3,cl:'Abr · May · Jun'},
@@ -981,17 +982,30 @@ function bDetCal(){
 }
 
 /* ── MAIN CALENDAR ──────────────────────────── */
+// Datos reales del calendario — se llena desde aplicarMovimientos
+var _calData = {}; // {dia: neto}
+
 function buildMainCal(hz){
   const g=document.getElementById('mainCal'),d=document.getElementById('mainCalDet');
   if(!g)return;g.innerHTML='';
-  document.getElementById('calTitle').textContent='Calendario — '+HZ[hz].cl;
-  for(let i=0;i<1;i++){const e=document.createElement('div');e.className='cd e';e.textContent='—';g.appendChild(e);}
-  for(let day=1;day<=30;day++){
-    const c=CAL_C[day]||'',n=CAL_N[day]||'';
-    const el=document.createElement('div');el.className='cd '+(c||'');
-    const col=n.startsWith('+')?'#1a8040':n.startsWith('-')?'#c03030':c==='t'?'#c88010':'#999';
-    el.innerHTML=`<div class="cdn">${day}</div><div class="cdv" style="color:${col};">${n}</div>`;
-    if(n){el.onclick=()=>{d.style.display='block';d.textContent='Abr '+day+': '+n;};}
+  const hzCfg = HZ[hz] || HZ['30d'];
+  document.getElementById('calTitle').textContent='Calendario — '+hzCfg.cl;
+  const hoy = new Date();
+  const diaHoy = hoy.getDate();
+  // Offset: mayo 2026 empieza en viernes (5) — ajustar según mes real
+  const primerDia = new Date(hoy.getFullYear(), hoy.getMonth(), 1).getDay();
+  const offset = primerDia === 0 ? 6 : primerDia - 1; // Lunes=0
+  for(let i=0;i<offset;i++){const e=document.createElement('div');e.className='cd e';g.appendChild(e);}
+  const diasMes = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0).getDate();
+  for(let day=1;day<=diasMes;day++){
+    const neto = _calData[day] || 0;
+    const isHoy = day === diaHoy;
+    const cls = isHoy ? 'cd t' : neto > 0 ? 'cd s' : neto < 0 ? 'cd d' : 'cd';
+    const label = neto !== 0 ? (neto>0?'+':'')+Math.round(neto/1000)+'K' : '';
+    const col = neto>0?'#1a8040':neto<0?'#c03030':isHoy?'#c88010':'#999';
+    const el=document.createElement('div');el.className=cls;
+    el.innerHTML=`<div class="cdn">${day}</div><div class="cdv" style="color:${col};">${isHoy?'HOY':label}</div>`;
+    if(label||isHoy){el.onclick=()=>{d.style.display='block';d.textContent=day+' May: '+(label||'Hoy');};}
     g.appendChild(el);
   }
 }
@@ -1272,7 +1286,7 @@ function aplicarMovimientos(rows) {
 
     // Calendario: acumula por día del mes
     if (fpStr) {
-      const p = fpStr.split('/');
+      const p = fpStr.trim().split('/');
       if (p.length >= 3) {
         const dia = parseInt(p[0]);
         if (!porDia[dia]) porDia[dia] = 0;
@@ -1308,6 +1322,10 @@ function aplicarMovimientos(rows) {
   actualizarKPI('ingresos-mes', formatMonto(ingMesTotal));
   actualizarKPI('egresos-mes',  '-' + formatMonto(egrMesTotal));
   actualizarKPI('alertas-count', String(vencidos));
+
+  // Actualizar calendario con datos reales
+  _calData = porDia;
+  buildMainCal('30d'); // Reconstruir con datos reales
 
   // Colores neto
   const netoEl = document.getElementById('kpi-neto-30');
@@ -1514,10 +1532,11 @@ function aplicarInmuebles(rows) {
     const nombre = r['Nombre'] || r['ID'] || '';
     const renta  = parseMonto(r['Renta_mensual']);
 
-    if (estado === 'Activo generando') { rentasActivas++; flujoTotal += flujo; propActivas.push(r); }
-    if (estado === 'Sin remodelar') sinRemodelar++;
-    if (estado === 'En proceso') enProceso++;
-    if (estado === 'Pipeline') pipeline++;
+    const estadoLow = estado.toLowerCase().trim();
+    if (estadoLow.includes('activo') || estadoLow.includes('generando')) { rentasActivas++; flujoTotal += flujo; propActivas.push(r); }
+    if (estadoLow.includes('sin remodelar')) sinRemodelar++;
+    if (estadoLow.includes('proceso')) enProceso++;
+    if (estadoLow.includes('pipeline')) pipeline++;
     if (flujo < 0 && estado !== 'Pipeline') propNegativas.push(r);
   });
 
@@ -1544,7 +1563,8 @@ function aplicarInmuebles(rows) {
   // Renderizar propiedades reales en módulo patrimonial
   _renderInmueblesPatrimonial(rows);
 
-  console.log('DMP inmuebles:', rentasActivas, 'activas, flujo:', formatMonto(flujoTotal));
+  console.log('DMP inmuebles:', rows.length, 'filas,', rentasActivas, 'activas, flujo:', formatMonto(flujoTotal));
+  if (rows.length > 0) console.log('DMP inmuebles estados:', rows.map(r => r['Estado_general']).join(', '));
 }
 
 function _renderInmueblesPatrimonial(rows) {
@@ -1553,7 +1573,11 @@ function _renderInmueblesPatrimonial(rows) {
 
   // Filtrar: no pipeline, ordenar por flujo ascendente (peores primero)
   const visibles = rows
-    .filter(r => r['Estado_general'] !== 'Pipeline' && r['ID'])
+    .filter(r => {
+      const est = (r['Estado_general'] || '').trim().toLowerCase();
+      const id = (r['ID'] || r['Nombre'] || '').trim();
+      return !est.includes('pipeline') && id;
+    })
     .sort((a,b) => parseMonto(a['Flujo_neto_mes']) - parseMonto(b['Flujo_neto_mes']));
 
   container.innerHTML = visibles.map(r => {
@@ -1571,7 +1595,7 @@ function _renderInmueblesPatrimonial(rows) {
     const acred   = r['Acreditado_id'] || '';
 
     // Estado visual
-    const esActivo = estado === 'Activo generando';
+    const esActivo = estado.toLowerCase().includes('activo') || estado.toLowerCase().includes('generando');
     const esNeg    = flujo < 0;
     const estadoColor = esActivo ? 'var(--green)' : esNeg ? 'var(--red)' : 'var(--gold)';
     const estadoBg    = esActivo ? 'var(--greenbg)' : esNeg ? 'var(--redbg)' : 'var(--goldbg)';
@@ -1906,20 +1930,46 @@ function aplicarKPIsGlobales(movs, flota, inmuebles, nomina) {
     el.style.color = parseFloat(el.textContent.replace(/[^0-9.-MKk$]/g,'')) >= 0 ? '#4caf7d' : '#e05555';
   });
 
-  // HP de empresas basado en margen
+  // HP y valores de empresas — usar TODOS los movimientos del mes
+  const inicioMes2 = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  const finMes2    = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0);
+  const porEmpresaMes = {};
+  movs.forEach(r => {
+    const tipo = r['Tipo'] || '';
+    const emp  = r['Empresa'] || '';
+    const mp   = Math.abs(parseMonto(r['Monto_programado']));
+    const fpStr = r['Fecha_programada'] || '';
+    const p = fpStr.trim().split('/');
+    if (p.length < 3) return;
+    const fp2 = new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+    fp2.setHours(0,0,0,0);
+    if (!porEmpresaMes[emp]) porEmpresaMes[emp] = { ing: 0, egr: 0 };
+    // Incluir todos (mes completo)
+    if (tipo === 'Ingreso') porEmpresaMes[emp].ing += mp;
+    if (tipo === 'Egreso')  porEmpresaMes[emp].egr += mp;
+  });
+
   const emps = ['t-vatuta','t-xride','t-azell','t-kurgan','t-baster','t-bruker'];
   const empNames = ['VATUTA','XRIDE','AZELL','KURGAN','BASTER','BRUKER'];
   emps.forEach((id, i) => {
     const ter = document.getElementById(id);
     if (!ter) return;
     const emp = empNames[i];
-    const d = porEmpresa[emp] || { ing: 0, egr: 0 };
-    const margen = d.ing > 0 ? Math.round((d.ing - d.egr) / d.ing * 100) : 0;
-    const hp = Math.min(100, Math.max(0, 50 + margen));
+    const d = porEmpresaMes[emp] || { ing: 0, egr: 0 };
+    const neto = d.ing - d.egr;
+    const margen = d.ing > 0 ? Math.round(neto / d.ing * 100) : 0;
+    const hp = Math.min(100, Math.max(10, 50 + margen/2));
     const fill = ter.querySelector('.hpf');
     const stat = ter.querySelector('.tstat span');
-    if (fill) { fill.style.width = hp + '%'; fill.style.background = hp > 60 ? '#4caf7d' : hp > 30 ? '#e0a020' : '#e05555'; }
-    if (stat) stat.textContent = 'HP ' + hp + '%';
+    const color = hp > 60 ? 'var(--green)' : hp > 35 ? 'var(--gold)' : 'var(--red)';
+    if (fill) { fill.style.width = hp + '%'; fill.style.background = hp > 60 ? '#1a8040' : hp > 35 ? '#c88010' : '#c03030'; }
+    if (stat) { stat.textContent = 'HP ' + Math.round(hp) + '%'; stat.style.color = color; }
+    // Actualizar tval con neto real
+    const tvalEl = document.getElementById('tval-' + emp.toLowerCase());
+    if (tvalEl && (d.ing > 0 || d.egr > 0)) {
+      tvalEl.textContent = (neto >= 0 ? '+' : '') + fmtM(neto) + ' 💰';
+      tvalEl.style.color = neto >= 0 ? 'var(--green)' : 'var(--red)';
+    }
   });
 
   // Flota sin contrato
@@ -1939,7 +1989,10 @@ function aplicarKPIsGlobales(movs, flota, inmuebles, nomina) {
   // Contador de libertad en Patrimonial
   if (inmuebles) {
     const rentaTotal = inmuebles
-      .filter(r => r['Estado_general'] === 'Activo generando')
+      .filter(r => {
+        const e = (r['Estado_general'] || '').toLowerCase();
+        return e.includes('activo') || e.includes('generando');
+      })
       .reduce((s, r) => s + parseMonto(r['Renta_mensual']), 0);
     const costoDM = 510000;
     const pct = Math.round(rentaTotal / costoDM * 100);
@@ -1959,15 +2012,7 @@ function aplicarKPIsGlobales(movs, flota, inmuebles, nomina) {
     setEl('nomina-headcount', activos.length + ' personas activas');
   }
 
-  // Actualizar valores de empresas en el mapa
-  const empMap = {
-    'VATUTA': 'tval-vatuta', 'XRIDE': 'tval-xride', 'AZELL': 'tval-azell',
-    'KURGAN': 'tval-kurgan', 'BASTER': 'tval-baster', 'BRUKER': 'tval-bruker'
-  };
-  Object.entries(empMap).forEach(([emp, id]) => {
-    const d = porEmpresa[emp] || { ing: 0, egr: 0 };
-    setEl(id, fmtM(d.ing - d.egr) + ' 💰');
-  });
+  // tval actualizado en el bloque de HP arriba — no duplicar
 
   // Alertas en módulo misiones/alertas
   const alertasHTML = [];
