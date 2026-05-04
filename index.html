@@ -354,6 +354,7 @@ body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(r
       <div>
         <div class="hud-name">Daniel Miranda</div>
         <div class="hud-role">Dungeon Master · Founder · Commander</div>
+        <div id="fecha-hud" style="font-size:9px;color:var(--text3);letter-spacing:0.08em;margin-top:2px;text-transform:uppercase;"></div>
       </div>
     </div>
     <div class="hud-stats">
@@ -852,6 +853,12 @@ function enterApp(){
   setTimeout(()=>{
     document.getElementById('loader').style.display='none';
     document.getElementById('app').classList.add('visible');
+    // Fecha de hoy en el HUD
+    const hoy = new Date();
+    const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const fechaHUD = document.getElementById('fecha-hud');
+    if (fechaHUD) fechaHUD.textContent = dias[hoy.getDay()] + ' ' + hoy.getDate() + ' de ' + meses[hoy.getMonth()] + ' ' + hoy.getFullYear();
     initCharts();
     buildMainCal('30d');
     cargarDatosSheet();
@@ -1275,14 +1282,32 @@ function aplicarMovimientos(rows) {
     }
   });
 
-  // KPIs globales
-  actualizarKPI('kpi-ing-30',  formatMonto(ing30));
-  actualizarKPI('kpi-egr-30',  formatMonto(egr30));
-  actualizarKPI('kpi-neto-30', formatMonto(ing30 - egr30));
+  // KPIs globales — incluir TODOS los movimientos del mes actual
+  // (pasados + futuros) para que los KPIs muestren el mes completo
+  let ingMesTotal = 0, egrMesTotal = 0;
+  const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+  const finMes    = new Date(ahora.getFullYear(), ahora.getMonth()+1, 0);
+  rows.forEach(r => {
+    const tipo = r['Tipo'] || '';
+    const mp   = Math.abs(parseMonto(r['Monto_programado']));
+    const fpStr = r['Fecha_programada'] || '';
+    const p = fpStr.trim().split('/');
+    if (p.length < 3) return;
+    const fp2 = new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0]));
+    fp2.setHours(0,0,0,0);
+    if (fp2 >= inicioMes && fp2 <= finMes) {
+      if (tipo === 'Ingreso') ingMesTotal += mp;
+      if (tipo === 'Egreso')  egrMesTotal += mp;
+    }
+  });
+
+  actualizarKPI('kpi-ing-30',  formatMonto(ingMesTotal));
+  actualizarKPI('kpi-egr-30',  formatMonto(egrMesTotal));
+  actualizarKPI('kpi-neto-30', formatMonto(ingMesTotal - egrMesTotal));
   actualizarKPI('kpi-ing-90',  formatMonto(ing90));
   actualizarKPI('kpi-neto-hoy', (ingHoy-egrHoy >= 0 ? '+' : '') + formatMonto(ingHoy - egrHoy));
-  actualizarKPI('ingresos-mes', formatMonto(ing30));
-  actualizarKPI('egresos-mes',  '-' + formatMonto(egr30));
+  actualizarKPI('ingresos-mes', formatMonto(ingMesTotal));
+  actualizarKPI('egresos-mes',  '-' + formatMonto(egrMesTotal));
   actualizarKPI('alertas-count', String(vencidos));
 
   // Colores neto
