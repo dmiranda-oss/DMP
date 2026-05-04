@@ -1186,8 +1186,7 @@ async function fetchCSV(url) {
 }
 
 function parsearCSV(texto) {
-  // Limpiar 
- de Windows y normalizar
+  // Limpiar caracteres de Windows y normalizar
   const lineas = texto.trim().replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
   if (lineas.length < 2) return [];
   const headers = lineas[0].split(',').map(h => h.replace(/"/g,'').trim());
